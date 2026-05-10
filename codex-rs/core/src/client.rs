@@ -384,6 +384,21 @@ impl ModelClient {
         format!("{thread_id}:{window_generation}")
     }
 
+    fn codex_request_metadata_enabled(&self) -> bool {
+        self.state.provider.info().is_openai()
+    }
+
+    fn codex_request_session_headers(&self) -> (Option<String>, Option<String>) {
+        self.codex_request_metadata_enabled()
+            .then(|| {
+                (
+                    Some(self.state.session_id.to_string()),
+                    Some(self.state.thread_id.to_string()),
+                )
+            })
+            .unwrap_or((None, None))
+    }
+
     fn take_cached_websocket_session(&self) -> WebsocketSession {
         let mut cached_websocket_session = self
             .state
@@ -485,7 +500,9 @@ impl ModelClient {
         };
 
         let mut extra_headers = ApiHeaderMap::new();
-        if let Ok(header_value) = HeaderValue::from_str(&self.state.installation_id) {
+        if self.codex_request_metadata_enabled()
+            && let Ok(header_value) = HeaderValue::from_str(&self.state.installation_id)
+        {
             extra_headers.insert(X_CODEX_INSTALLATION_ID_HEADER, header_value);
         }
         extra_headers.extend(build_responses_headers(
@@ -494,10 +511,8 @@ impl ModelClient {
             /*turn_metadata_header*/ None,
         ));
         extra_headers.extend(self.build_responses_identity_headers());
-        extra_headers.extend(build_session_headers(
-            Some(self.state.session_id.to_string()),
-            Some(self.state.thread_id.to_string()),
-        ));
+        let (session_id, thread_id) = self.codex_request_session_headers();
+        extra_headers.extend(build_session_headers(session_id, thread_id));
         if let Some(header_value) = self.generate_attestation_header_for().await {
             extra_headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
         }
@@ -592,6 +607,9 @@ impl ModelClient {
 
     fn build_subagent_headers(&self) -> ApiHeaderMap {
         let mut extra_headers = ApiHeaderMap::new();
+        if !self.codex_request_metadata_enabled() {
+            return extra_headers;
+        }
         if let Some(subagent) = subagent_header_value(&self.state.session_source)
             && let Ok(val) = HeaderValue::from_str(&subagent)
         {
@@ -611,6 +629,9 @@ impl ModelClient {
 
     fn build_responses_identity_headers(&self) -> ApiHeaderMap {
         let mut extra_headers = self.build_subagent_headers();
+        if !self.codex_request_metadata_enabled() {
+            return extra_headers;
+        }
         if let Some(parent_thread_id) = parent_thread_id_header_value(&self.state.session_source)
             && let Ok(val) = HeaderValue::from_str(&parent_thread_id)
         {
@@ -627,6 +648,9 @@ impl ModelClient {
         turn_metadata_header: Option<&str>,
     ) -> HashMap<String, String> {
         let mut client_metadata = HashMap::new();
+        if !self.codex_request_metadata_enabled() {
+            return client_metadata;
+        }
         client_metadata.insert(
             X_CODEX_INSTALLATION_ID_HEADER.to_string(),
             self.state.installation_id.clone(),
@@ -739,7 +763,9 @@ impl ModelClient {
             &prompt.output_schema,
             prompt.output_schema_strict,
         );
-        let prompt_cache_key = Some(self.state.thread_id.to_string());
+        let prompt_cache_key = self
+            .codex_request_metadata_enabled()
+            .then(|| self.state.thread_id.to_string());
         let service_tier =
             service_tier.filter(|service_tier| model_info.supports_service_tier(service_tier));
         let request = ResponsesApiRequest {
@@ -756,10 +782,12 @@ impl ModelClient {
             service_tier,
             prompt_cache_key,
             text,
-            client_metadata: Some(HashMap::from([(
-                X_CODEX_INSTALLATION_ID_HEADER.to_string(),
-                self.state.installation_id.clone(),
-            )])),
+            client_metadata: self.codex_request_metadata_enabled().then(|| {
+                HashMap::from([(
+                    X_CODEX_INSTALLATION_ID_HEADER.to_string(),
+                    self.state.installation_id.clone(),
+                )])
+            }),
         };
         Ok(request)
     }
@@ -892,31 +920,34 @@ impl ModelClient {
         turn_state: Option<&Arc<OnceLock<String>>>,
         turn_metadata_header: Option<&str>,
     ) -> ApiHeaderMap {
-        let turn_metadata_header = parse_turn_metadata_header(turn_metadata_header);
-        let session_id = self.state.session_id.to_string();
-        let thread_id = self.state.thread_id.to_string();
-        let mut headers = build_responses_headers(
-            self.state.beta_features_header.as_deref(),
-            turn_state,
-            turn_metadata_header.as_ref(),
-        );
-        if let Ok(header_value) = HeaderValue::from_str(&thread_id) {
-            headers.insert("x-client-request-id", header_value);
-        }
-        headers.extend(build_session_headers(Some(session_id), Some(thread_id)));
-        headers.extend(self.build_responses_identity_headers());
-        if let Some(header_value) = self.generate_attestation_header_for().await {
-            headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
-        }
-        headers.insert(
-            OPENAI_BETA_HEADER,
-            HeaderValue::from_static(RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE),
-        );
-        if self.state.include_timing_metrics {
+        let mut headers = ApiHeaderMap::new();
+        if self.codex_request_metadata_enabled() {
+            let turn_metadata_header = parse_turn_metadata_header(turn_metadata_header);
+            let thread_id = self.state.thread_id.to_string();
+            headers.extend(build_responses_headers(
+                self.state.beta_features_header.as_deref(),
+                turn_state,
+                turn_metadata_header.as_ref(),
+            ));
+            if let Ok(header_value) = HeaderValue::from_str(&thread_id) {
+                headers.insert("x-client-request-id", header_value);
+            }
+            let (session_id, thread_id) = self.codex_request_session_headers();
+            headers.extend(build_session_headers(session_id, thread_id));
+            headers.extend(self.build_responses_identity_headers());
+            if let Some(header_value) = self.generate_attestation_header_for().await {
+                headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
+            }
             headers.insert(
-                X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER,
-                HeaderValue::from_static("true"),
+                OPENAI_BETA_HEADER,
+                HeaderValue::from_static(RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE),
             );
+            if self.state.include_timing_metrics {
+                headers.insert(
+                    X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER,
+                    HeaderValue::from_static("true"),
+                );
+            }
         }
         headers
     }
@@ -961,21 +992,31 @@ impl ModelClientSession {
         turn_metadata_header: Option<&str>,
         compression: Compression,
     ) -> ApiResponsesOptions {
-        let turn_metadata_header = parse_turn_metadata_header(turn_metadata_header);
-        let session_id = self.client.state.session_id.to_string();
-        let thread_id = self.client.state.thread_id.to_string();
+        let metadata_enabled = self.client.codex_request_metadata_enabled();
+        let turn_metadata_header = if metadata_enabled {
+            parse_turn_metadata_header(turn_metadata_header)
+        } else {
+            None
+        };
+        let (session_id, thread_id) = self.client.codex_request_session_headers();
         ApiResponsesOptions {
-            session_id: Some(session_id),
-            thread_id: Some(thread_id),
-            session_source: Some(self.client.state.session_source.clone()),
+            session_id,
+            thread_id,
+            session_source: metadata_enabled.then(|| self.client.state.session_source.clone()),
             extra_headers: {
-                let mut headers = build_responses_headers(
-                    self.client.state.beta_features_header.as_deref(),
-                    Some(&self.turn_state),
-                    turn_metadata_header.as_ref(),
-                );
+                let mut headers = if metadata_enabled {
+                    build_responses_headers(
+                        self.client.state.beta_features_header.as_deref(),
+                        Some(&self.turn_state),
+                        turn_metadata_header.as_ref(),
+                    )
+                } else {
+                    ApiHeaderMap::new()
+                };
                 headers.extend(self.client.build_responses_identity_headers());
-                if let Some(header_value) = self.client.generate_attestation_header_for().await {
+                if metadata_enabled
+                    && let Some(header_value) = self.client.generate_attestation_header_for().await
+                {
                     headers.insert(X_OAI_ATTESTATION_HEADER, header_value);
                 }
                 headers
@@ -1375,10 +1416,14 @@ impl ModelClientSession {
                 service_tier.clone(),
             )?;
             let mut ws_payload = ResponseCreateWsRequest {
-                client_metadata: response_create_client_metadata(
-                    Some(self.client.build_ws_client_metadata(turn_metadata_header)),
-                    request_trace.as_ref(),
-                ),
+                client_metadata: if self.client.codex_request_metadata_enabled() {
+                    response_create_client_metadata(
+                        Some(self.client.build_ws_client_metadata(turn_metadata_header)),
+                        request_trace.as_ref(),
+                    )
+                } else {
+                    None
+                },
                 ..ResponseCreateWsRequest::from(&request)
             };
             if warmup {

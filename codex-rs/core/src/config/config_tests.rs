@@ -3623,7 +3623,7 @@ fn local_dev_builds_force_file_mcp_oauth_store_modes() {
 }
 
 #[tokio::test]
-async fn feedback_enabled_defaults_to_true() -> std::io::Result<()> {
+async fn feedback_enabled_defaults_to_false() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         feedback: Some(FeedbackConfigToml::default()),
@@ -3637,7 +3637,7 @@ async fn feedback_enabled_defaults_to_true() -> std::io::Result<()> {
     )
     .await?;
 
-    assert_eq!(config.feedback_enabled, true);
+    assert_eq!(config.feedback_enabled, false);
 
     Ok(())
 }
@@ -7076,7 +7076,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             model_availability_nux: ModelAvailabilityNuxConfig::default(),
             terminal_resize_reflow: TerminalResizeReflowConfig::default(),
             analytics_enabled: Some(true),
-            feedback_enabled: true,
+            feedback_enabled: false,
             tool_suggest: ToolSuggestConfig::default(),
             tui_alternate_screen: AltScreenMode::Auto,
             tui_status_line: None,
@@ -7092,7 +7092,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
 }
 
 #[tokio::test]
-async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<()> {
+async fn metrics_exporter_defaults_to_none_when_missing() -> std::io::Result<()> {
     let fixture = create_test_fixture()?;
 
     let config = Config::load_from_base_config_with_overrides(
@@ -7105,7 +7105,7 @@ async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<
     )
     .await?;
 
-    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::Statsig);
+    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::None);
     Ok(())
 }
 
@@ -7520,7 +7520,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
         terminal_resize_reflow: TerminalResizeReflowConfig::default(),
         analytics_enabled: Some(true),
-        feedback_enabled: true,
+        feedback_enabled: false,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,
@@ -7678,7 +7678,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
         terminal_resize_reflow: TerminalResizeReflowConfig::default(),
         analytics_enabled: Some(false),
-        feedback_enabled: true,
+        feedback_enabled: false,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,
@@ -7821,7 +7821,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         model_availability_nux: ModelAvailabilityNuxConfig::default(),
         terminal_resize_reflow: TerminalResizeReflowConfig::default(),
         analytics_enabled: Some(true),
-        feedback_enabled: true,
+        feedback_enabled: false,
         tool_suggest: ToolSuggestConfig::default(),
         tui_alternate_screen: AltScreenMode::Auto,
         tui_status_line: None,

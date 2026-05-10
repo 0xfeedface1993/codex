@@ -32,6 +32,12 @@ pub(crate) async fn rewrite_mcp_tool_arguments_for_openai_files(
     let Some(arguments) = arguments_value.as_object() else {
         return Ok(Some(arguments_value));
     };
+    if !turn_context.provider.info().is_openai() {
+        return Err(
+            "OpenAI file uploads are only supported when the active model provider is OpenAI"
+                .to_string(),
+        );
+    }
     let auth = sess.services.auth_manager.auth().await;
     let mut rewritten_arguments = arguments.clone();
 
@@ -102,6 +108,12 @@ async fn build_uploaded_local_argument_value(
     index: Option<usize>,
     file_path: &str,
 ) -> Result<JsonValue, String> {
+    if !turn_context.provider.info().is_openai() {
+        return Err(
+            "OpenAI file uploads are only supported when the active model provider is OpenAI"
+                .to_string(),
+        );
+    }
     let resolved_path = turn_context.resolve_path(Some(file_path.to_string()));
     let Some(auth) = auth else {
         return Err(
@@ -140,6 +152,9 @@ async fn build_uploaded_local_argument_value(
 mod tests {
     use super::*;
     use crate::session::tests::make_session_and_context;
+    use codex_model_provider::create_model_provider;
+    use codex_model_provider_info::WireApi;
+    use codex_model_provider_info::create_oss_provider_with_base_url;
     use codex_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
     use std::sync::Arc;
@@ -467,5 +482,37 @@ mod tests {
 
         assert!(error.contains("failed to upload"));
         assert!(error.contains("file"));
+    }
+
+    #[tokio::test]
+    async fn rewrite_mcp_tool_arguments_for_openai_files_rejects_non_openai_provider() {
+        let (mut session, mut turn_context) = make_session_and_context().await;
+        session.services.auth_manager = crate::test_support::auth_manager_from_auth(
+            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+        );
+        let provider =
+            create_oss_provider_with_base_url("http://localhost:11434/v1", WireApi::Responses);
+        turn_context.provider =
+            create_model_provider(provider.clone(), turn_context.auth_manager.clone());
+        let mut config = (*turn_context.config).clone();
+        config.model_provider = provider;
+        config.model_provider_id = "ollama".to_string();
+        turn_context.config = Arc::new(config);
+
+        let error = rewrite_mcp_tool_arguments_for_openai_files(
+            &session,
+            &turn_context,
+            Some(serde_json::json!({
+                "file": "/tmp/report.csv",
+            })),
+            Some(&["file".to_string()]),
+        )
+        .await
+        .expect_err("non-OpenAI provider should not upload to OpenAI file storage");
+
+        assert_eq!(
+            error,
+            "OpenAI file uploads are only supported when the active model provider is OpenAI"
+        );
     }
 }

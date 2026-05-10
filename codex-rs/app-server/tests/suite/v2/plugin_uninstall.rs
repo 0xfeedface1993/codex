@@ -3,7 +3,6 @@ use std::time::Duration;
 use anyhow::Result;
 use anyhow::bail;
 use app_test_support::ChatGptAuthFixture;
-use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::McpProcess;
 use app_test_support::start_analytics_events_server;
 use app_test_support::to_response;
@@ -14,7 +13,6 @@ use codex_app_server_protocol::PluginUninstallResponse;
 use codex_app_server_protocol::RequestId;
 use codex_config::types::AuthCredentialsStoreMode;
 use pretty_assertions::assert_eq;
-use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::timeout;
 use wiremock::Mock;
@@ -80,7 +78,7 @@ enabled = true
 }
 
 #[tokio::test]
-async fn plugin_uninstall_tracks_analytics_event() -> Result<()> {
+async fn plugin_uninstall_does_not_send_analytics_event() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
     write_installed_plugin(&codex_home, "debug", "sample-plugin")?;
@@ -116,39 +114,18 @@ async fn plugin_uninstall_tracks_analytics_event() -> Result<()> {
     let response: PluginUninstallResponse = to_response(response)?;
     assert_eq!(response, PluginUninstallResponse {});
 
-    let payload = timeout(DEFAULT_TIMEOUT, async {
-        loop {
-            let Some(requests) = analytics_server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
-            }) {
-                break request.body.clone();
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await?;
-    let payload: serde_json::Value = serde_json::from_slice(&payload).expect("analytics payload");
-    assert_eq!(
-        payload,
-        json!({
-            "events": [{
-                "event_type": "codex_plugin_uninstalled",
-                "event_params": {
-                    "plugin_id": "sample-plugin@debug",
-                    "plugin_name": "sample-plugin",
-                    "marketplace_name": "debug",
-                    "has_skills": false,
-                    "mcp_server_count": 0,
-                    "connector_ids": [],
-                    "product_client_id": DEFAULT_CLIENT_NAME,
-                }
-            }]
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let requests = analytics_server
+        .received_requests()
+        .await
+        .unwrap_or_default();
+    let count = requests
+        .iter()
+        .filter(|request| {
+            request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
         })
-    );
+        .count();
+    assert_eq!(count, 0, "plugin analytics requests should be disabled");
     Ok(())
 }
 

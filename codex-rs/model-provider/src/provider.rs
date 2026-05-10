@@ -396,6 +396,24 @@ mod tests {
     }
 
     #[test]
+    fn create_model_provider_does_not_use_openai_auth_manager_for_custom_provider() {
+        let provider = create_model_provider(
+            ModelProviderInfo {
+                name: "Custom".to_string(),
+                base_url: Some("http://localhost:1234/v1".to_string()),
+                wire_api: WireApi::Responses,
+                requires_openai_auth: false,
+                ..Default::default()
+            },
+            Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
+                "openai-api-key",
+            ))),
+        );
+
+        assert!(provider.auth_manager().is_none());
+    }
+
+    #[test]
     fn openai_provider_returns_unauthenticated_openai_account_state() {
         let provider = create_model_provider(
             ModelProviderInfo::create_openai_provider(/*base_url*/ None),

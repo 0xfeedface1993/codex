@@ -51,7 +51,7 @@ async fn responses_stream_includes_subagent_header_on_review() {
     .await;
 
     let provider = ModelProviderInfo {
-        name: "mock".into(),
+        name: "OpenAI".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -178,7 +178,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
     .await;
 
     let provider = ModelProviderInfo {
-        name: "mock".into(),
+        name: "OpenAI".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -275,6 +275,121 @@ async fn responses_stream_includes_subagent_header_on_other() {
         request.header("x-openai-subagent").as_deref(),
         Some("my-task")
     );
+}
+
+#[tokio::test]
+async fn responses_stream_omits_codex_metadata_for_custom_provider() {
+    core_test_support::skip_if_no_network!();
+
+    let server = responses::start_mock_server().await;
+    let response_body = responses::sse(vec![
+        responses::ev_response_created("resp-1"),
+        responses::ev_completed("resp-1"),
+    ]);
+
+    let request_recorder = responses::mount_sse_once(&server, response_body).await;
+
+    let provider = ModelProviderInfo {
+        name: "mock".into(),
+        base_url: Some(format!("{}/v1", server.uri())),
+        env_key: None,
+        env_key_instructions: None,
+        experimental_bearer_token: None,
+        auth: None,
+        aws: None,
+        wire_api: WireApi::Responses,
+        query_params: None,
+        http_headers: None,
+        env_http_headers: None,
+        request_max_retries: Some(0),
+        stream_max_retries: Some(0),
+        stream_idle_timeout_ms: Some(5_000),
+        websocket_connect_timeout_ms: None,
+        requires_openai_auth: false,
+        supports_websockets: false,
+    };
+
+    let codex_home = TempDir::new().expect("failed to create TempDir");
+    let mut config = load_default_config_for_test(&codex_home).await;
+    config.model_provider_id = provider.name.clone();
+    config.model_provider = provider.clone();
+    let effort = config.model_reasoning_effort;
+    let summary = config.model_reasoning_summary;
+    let model = codex_core::test_support::get_model_offline(config.model.as_deref());
+    config.model = Some(model.clone());
+    let config = Arc::new(config);
+
+    let thread_id = ThreadId::new();
+    let session_source = SessionSource::SubAgent(SubAgentSource::Other("my-task".to_string()));
+    let model_info =
+        codex_core::test_support::construct_model_info_offline(model.as_str(), &config);
+    let session_telemetry = SessionTelemetry::new(
+        thread_id,
+        model.as_str(),
+        model_info.slug.as_str(),
+        /*account_id*/ None,
+        Some("test@test.com".to_string()),
+        Some(TelemetryAuthMode::Chatgpt),
+        "test_originator".to_string(),
+        /*log_user_prompts*/ false,
+        "test".to_string(),
+        session_source.clone(),
+    );
+
+    let client = ModelClient::new(
+        /*auth_manager*/ None,
+        thread_id.into(),
+        thread_id,
+        /*installation_id*/ TEST_INSTALLATION_ID.to_string(),
+        provider.clone(),
+        session_source,
+        config.model_verbosity,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+        /*attestation_provider*/ None,
+    );
+    let mut client_session = client.new_session();
+
+    let mut prompt = Prompt::default();
+    prompt.input = vec![ResponseItem::Message {
+        id: None,
+        role: "user".into(),
+        content: vec![ContentItem::InputText {
+            text: "hello".into(),
+        }],
+        phase: None,
+    }];
+
+    let mut stream = client_session
+        .stream(
+            &prompt,
+            &model_info,
+            &session_telemetry,
+            effort,
+            summary.unwrap_or(model_info.default_reasoning_summary),
+            /*service_tier*/ None,
+            /*turn_metadata_header*/ Some(r#"{"turn_id":"turn-123"}"#),
+            &codex_rollout_trace::InferenceTraceContext::disabled(),
+        )
+        .await
+        .expect("stream failed");
+    while let Some(event) = stream.next().await {
+        if matches!(event, Ok(ResponseEvent::Completed { .. })) {
+            break;
+        }
+    }
+
+    let request = request_recorder.single_request();
+    let body = request.body_json();
+    assert_eq!(request.header("x-openai-subagent"), None);
+    assert_eq!(request.header("x-codex-window-id"), None);
+    assert_eq!(request.header("x-codex-turn-metadata"), None);
+    assert_eq!(request.header("x-client-request-id"), None);
+    assert_eq!(request.header("session_id"), None);
+    assert_eq!(request.header("thread_id"), None);
+    assert_eq!(body.get("client_metadata"), None);
+    assert_eq!(body.get("prompt_cache_key"), None);
 }
 
 #[tokio::test]

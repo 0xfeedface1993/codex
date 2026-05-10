@@ -7,7 +7,6 @@ use std::io::{self};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use anyhow::Result;
 use anyhow::anyhow;
@@ -28,9 +27,6 @@ pub use feedback_diagnostics::FeedbackDiagnostic;
 pub use feedback_diagnostics::FeedbackDiagnostics;
 
 const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
-const SENTRY_DSN: &str =
-    "https://ae32ed50620d7a7792c1ce5df38b3e3e@o33249.ingest.us.sentry.io/4510195390611458";
-const UPLOAD_TIMEOUT_SECS: u64 = 10;
 const FEEDBACK_TAGS_TARGET: &str = "feedback_tags";
 const MAX_FEEDBACK_TAGS: usize = 64;
 
@@ -333,6 +329,7 @@ impl RingBuffer {
 
 pub struct FeedbackSnapshot {
     bytes: Vec<u8>,
+    #[allow(dead_code)]
     tags: BTreeMap<String, String>,
     feedback_diagnostics: FeedbackDiagnostics,
     pub thread_id: String,
@@ -384,77 +381,12 @@ impl FeedbackSnapshot {
         Ok(path)
     }
 
-    /// Upload feedback to Sentry with optional attachments.
-    pub fn upload_feedback(&self, options: FeedbackUploadOptions<'_>) -> Result<()> {
-        use std::str::FromStr;
-        use std::sync::Arc;
-
-        use sentry::Client;
-        use sentry::ClientOptions;
-        use sentry::protocol::Envelope;
-        use sentry::protocol::EnvelopeItem;
-        use sentry::protocol::Event;
-        use sentry::protocol::Level;
-        use sentry::transports::DefaultTransportFactory;
-        use sentry::types::Dsn;
-
-        // Build Sentry client
-        let client = Client::from_config(ClientOptions {
-            dsn: Some(Dsn::from_str(SENTRY_DSN).map_err(|e| anyhow!("invalid DSN: {e}"))?),
-            transport: Some(Arc::new(DefaultTransportFactory {})),
-            ..Default::default()
-        });
-
-        let tags = self.upload_tags(
-            options.classification,
-            options.reason,
-            options.tags,
-            options.session_source.as_ref(),
-        );
-
-        let level = match options.classification {
-            "bug" | "bad_result" | "safety_check" => Level::Error,
-            _ => Level::Info,
-        };
-
-        let mut envelope = Envelope::new();
-        let title = format!(
-            "[{}]: Codex session {}",
-            display_classification(options.classification),
-            self.thread_id
-        );
-
-        let mut event = Event {
-            level,
-            message: Some(title.clone()),
-            tags,
-            ..Default::default()
-        };
-        if let Some(r) = options.reason {
-            use sentry::protocol::Exception;
-            use sentry::protocol::Values;
-
-            event.exception = Values::from(vec![Exception {
-                ty: title,
-                value: Some(r.to_string()),
-                ..Default::default()
-            }]);
-        }
-        envelope.add_item(EnvelopeItem::Event(event));
-
-        for attachment in self.feedback_attachments(
-            options.include_logs,
-            options.extra_attachment_paths,
-            options.logs_override,
-        ) {
-            envelope.add_item(EnvelopeItem::Attachment(attachment));
-        }
-
-        client.send_envelope(envelope);
-        client.flush(Some(Duration::from_secs(UPLOAD_TIMEOUT_SECS)));
-        Ok(())
+    /// External feedback uploads are disabled for privacy-preserving builds.
+    pub fn upload_feedback(&self, _options: FeedbackUploadOptions<'_>) -> Result<()> {
+        Err(anyhow!("feedback uploads are disabled in this build"))
     }
 
+    #[allow(dead_code)]
     fn upload_tags(
         &self,
         classification: &str,
@@ -502,77 +434,6 @@ impl FeedbackSnapshot {
         }
 
         tags
-    }
-
-    fn feedback_attachments(
-        &self,
-        include_logs: bool,
-        extra_attachment_paths: &[FeedbackAttachmentPath],
-        logs_override: Option<Vec<u8>>,
-    ) -> Vec<sentry::protocol::Attachment> {
-        use sentry::protocol::Attachment;
-
-        let mut attachments = Vec::new();
-
-        if include_logs {
-            attachments.push(Attachment {
-                buffer: logs_override.unwrap_or_else(|| self.bytes.clone()),
-                filename: String::from("codex-logs.log"),
-                content_type: Some("text/plain".to_string()),
-                ty: None,
-            });
-        }
-
-        if let Some(text) = self.feedback_diagnostics_attachment_text(include_logs) {
-            attachments.push(Attachment {
-                buffer: text.into_bytes(),
-                filename: FEEDBACK_DIAGNOSTICS_ATTACHMENT_FILENAME.to_string(),
-                content_type: Some("text/plain".to_string()),
-                ty: None,
-            });
-        }
-
-        for attachment_path in extra_attachment_paths {
-            let data = match fs::read(&attachment_path.path) {
-                Ok(data) => data,
-                Err(err) => {
-                    tracing::warn!(
-                        path = %attachment_path.path.display(),
-                        error = %err,
-                        "failed to read log attachment; skipping"
-                    );
-                    continue;
-                }
-            };
-            let filename = attachment_path
-                .attachment_filename_override
-                .clone()
-                .unwrap_or_else(|| {
-                    attachment_path
-                        .path
-                        .file_name()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "extra-log.log".to_string())
-                });
-            attachments.push(Attachment {
-                buffer: data,
-                filename,
-                content_type: Some("text/plain".to_string()),
-                ty: None,
-            });
-        }
-
-        attachments
-    }
-}
-
-fn display_classification(classification: &str) -> String {
-    match classification {
-        "bug" => "Bug".to_string(),
-        "bad_result" => "Bad result".to_string(),
-        "good_result" => "Good result".to_string(),
-        "safety_check" => "Safety check".to_string(),
-        _ => "Other".to_string(),
     }
 }
 
@@ -648,11 +509,7 @@ impl Visit for FeedbackTagsVisitor {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
-    use std::fs;
-
     use super::*;
-    use crate::FeedbackDiagnostic;
     use pretty_assertions::assert_eq;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -682,67 +539,6 @@ mod tests {
         let snap = fb.snapshot(/*session_id*/ None);
         pretty_assertions::assert_eq!(snap.tags.get("model").map(String::as_str), Some("gpt-5"));
         pretty_assertions::assert_eq!(snap.tags.get("cached").map(String::as_str), Some("true"));
-    }
-
-    #[test]
-    fn feedback_attachments_gate_connectivity_diagnostics() {
-        let extra_filename = format!("codex-feedback-extra-{}.jsonl", ThreadId::new());
-        let extra_path = std::env::temp_dir().join(&extra_filename);
-        let extra_attachment_path = FeedbackAttachmentPath {
-            path: extra_path.clone(),
-            attachment_filename_override: None,
-        };
-        fs::write(&extra_path, "rollout").expect("extra attachment should be written");
-
-        let snapshot_with_diagnostics = CodexFeedback::new()
-            .snapshot(/*session_id*/ None)
-            .with_feedback_diagnostics(FeedbackDiagnostics::new(vec![FeedbackDiagnostic {
-                headline: "Proxy environment variables are set and may affect connectivity."
-                    .to_string(),
-                details: vec!["HTTPS_PROXY = https://example.com:443".to_string()],
-            }]));
-
-        let attachments_with_diagnostics = snapshot_with_diagnostics.feedback_attachments(
-            /*include_logs*/ true,
-            std::slice::from_ref(&extra_attachment_path),
-            Some(vec![1]),
-        );
-
-        assert_eq!(
-            attachments_with_diagnostics
-                .iter()
-                .map(|attachment| attachment.filename.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "codex-logs.log",
-                FEEDBACK_DIAGNOSTICS_ATTACHMENT_FILENAME,
-                extra_filename.as_str()
-            ]
-        );
-        assert_eq!(attachments_with_diagnostics[0].buffer, vec![1]);
-        assert_eq!(
-            attachments_with_diagnostics[1].buffer,
-            b"Connectivity diagnostics\n\n- Proxy environment variables are set and may affect connectivity.\n  - HTTPS_PROXY = https://example.com:443".to_vec()
-        );
-        assert_eq!(attachments_with_diagnostics[2].buffer, b"rollout".to_vec());
-        assert_eq!(
-            OsStr::new(attachments_with_diagnostics[2].filename.as_str()),
-            OsStr::new(extra_filename.as_str())
-        );
-        let attachments_without_diagnostics = CodexFeedback::new()
-            .snapshot(/*session_id*/ None)
-            .with_feedback_diagnostics(FeedbackDiagnostics::default())
-            .feedback_attachments(/*include_logs*/ true, &[], Some(vec![1]));
-
-        assert_eq!(
-            attachments_without_diagnostics
-                .iter()
-                .map(|attachment| attachment.filename.as_str())
-                .collect::<Vec<_>>(),
-            vec!["codex-logs.log"]
-        );
-        assert_eq!(attachments_without_diagnostics[0].buffer, vec![1]);
-        fs::remove_file(extra_path).expect("extra attachment should be removed");
     }
 
     #[test]

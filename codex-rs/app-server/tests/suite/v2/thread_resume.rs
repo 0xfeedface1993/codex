@@ -86,10 +86,8 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-use super::analytics::assert_basic_thread_initialized_event;
+use super::analytics::assert_no_analytics_requests;
 use super::analytics::mount_analytics_capture;
-use super::analytics::thread_initialized_event;
-use super::analytics::wait_for_analytics_payload;
 
 #[cfg(windows)]
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
@@ -233,7 +231,7 @@ async fn thread_goal_get_rejects_unmaterialized_thread() -> Result<()> {
 }
 
 #[tokio::test]
-async fn thread_resume_tracks_thread_initialized_analytics() -> Result<()> {
+async fn thread_resume_does_not_send_thread_initialized_analytics() -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
 
     let codex_home = TempDir::new()?;
@@ -276,10 +274,7 @@ async fn thread_resume_tracks_thread_initialized_analytics() -> Result<()> {
     );
     assert_eq!(thread.thread_source, Some(ThreadSource::User));
 
-    let payload = wait_for_analytics_payload(&server, DEFAULT_READ_TIMEOUT).await?;
-    let event = thread_initialized_event(&payload)?;
-    assert_basic_thread_initialized_event(event, &thread.id, "gpt-5.3-codex", "resumed", "user");
-    assert_eq!(event["event_params"]["thread_source"], "user");
+    assert_no_analytics_requests(&server).await?;
     Ok(())
 }
 

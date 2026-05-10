@@ -6,7 +6,6 @@ use std::time::Duration;
 use anyhow::Result;
 use anyhow::bail;
 use app_test_support::ChatGptAuthFixture;
-use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::McpProcess;
 use app_test_support::start_analytics_events_server;
 use app_test_support::to_response;
@@ -658,7 +657,7 @@ async fn plugin_install_returns_invalid_request_for_disallowed_product_plugin() 
 }
 
 #[tokio::test]
-async fn plugin_install_tracks_analytics_event() -> Result<()> {
+async fn plugin_install_does_not_send_analytics_event() -> Result<()> {
     let analytics_server = start_analytics_events_server().await?;
     let codex_home = TempDir::new()?;
     write_analytics_config(codex_home.path(), &analytics_server.uri())?;
@@ -702,29 +701,12 @@ async fn plugin_install_tracks_analytics_event() -> Result<()> {
     let response: PluginInstallResponse = to_response(response)?;
     assert_eq!(response.apps_needing_auth, Vec::<AppSummary>::new());
 
-    let payload = wait_for_plugin_analytics_payload(&analytics_server).await?;
-    assert_eq!(
-        payload,
-        json!({
-            "events": [{
-                "event_type": "codex_plugin_installed",
-                "event_params": {
-                    "plugin_id": "sample-plugin@debug",
-                    "plugin_name": "sample-plugin",
-                    "marketplace_name": "debug",
-                    "has_skills": false,
-                    "mcp_server_count": 0,
-                    "connector_ids": [],
-                    "product_client_id": DEFAULT_CLIENT_NAME,
-                }
-            }]
-        })
-    );
+    assert_no_plugin_analytics_payload(&analytics_server).await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
+async fn plugin_install_does_not_send_remote_plugin_analytics_event() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
     let bundle_url = mount_remote_plugin_bundle(
@@ -755,24 +737,7 @@ async fn plugin_install_tracks_remote_plugin_analytics_event() -> Result<()> {
     let response: PluginInstallResponse = to_response(response)?;
     assert_eq!(response.apps_needing_auth, Vec::<AppSummary>::new());
 
-    let payload = wait_for_plugin_analytics_payload(&server).await?;
-    assert_eq!(
-        payload,
-        json!({
-            "events": [{
-                "event_type": "codex_plugin_installed",
-                "event_params": {
-                    "plugin_id": REMOTE_PLUGIN_ID,
-                    "plugin_name": "linear",
-                    "marketplace_name": "chatgpt-global",
-                    "has_skills": true,
-                    "mcp_server_count": 0,
-                    "connector_ids": [],
-                    "product_client_id": DEFAULT_CLIENT_NAME,
-                }
-            }]
-        })
-    );
+    assert_no_plugin_analytics_payload(&server).await?;
     Ok(())
 }
 
@@ -1263,27 +1228,21 @@ async fn mount_backend_analytics_events(server: &MockServer) {
         .await;
 }
 
-async fn wait_for_plugin_analytics_payload(server: &MockServer) -> Result<serde_json::Value> {
-    timeout(DEFAULT_TIMEOUT, async {
-        loop {
-            let Some(requests) = server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST"
-                    && request
-                        .url
-                        .path()
-                        .ends_with("/codex/analytics-events/events")
-            }) {
-                return serde_json::from_slice(&request.body)
-                    .map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"));
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await?
+async fn assert_no_plugin_analytics_payload(server: &MockServer) -> Result<()> {
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let requests = server.received_requests().await.unwrap_or_default();
+    let count = requests
+        .iter()
+        .filter(|request| {
+            request.method == "POST"
+                && request
+                    .url
+                    .path()
+                    .ends_with("/codex/analytics-events/events")
+        })
+        .count();
+    assert_eq!(count, 0, "plugin analytics requests should be disabled");
+    Ok(())
 }
 
 fn write_remote_plugin_catalog_config(
