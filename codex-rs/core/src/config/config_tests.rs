@@ -4679,7 +4679,7 @@ fn local_dev_builds_force_file_mcp_oauth_store_modes() {
 }
 
 #[tokio::test]
-async fn feedback_enabled_defaults_to_true() -> std::io::Result<()> {
+async fn feedback_enabled_defaults_to_false() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {
         feedback: Some(FeedbackConfigToml::default()),
@@ -4693,7 +4693,7 @@ async fn feedback_enabled_defaults_to_true() -> std::io::Result<()> {
     )
     .await?;
 
-    assert_eq!(config.feedback_enabled, true);
+    assert_eq!(config.feedback_enabled, false);
 
     Ok(())
 }
@@ -7778,7 +7778,7 @@ async fn legacy_profile_selection_is_rejected() -> std::io::Result<()> {
 }
 
 #[tokio::test]
-async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<()> {
+async fn metrics_exporter_defaults_to_none_when_missing() -> std::io::Result<()> {
     let fixture = create_test_fixture()?;
 
     let config = Config::load_from_base_config_with_overrides(
@@ -7791,7 +7791,7 @@ async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<
     )
     .await?;
 
-    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::Statsig);
+    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::None);
     Ok(())
 }
 

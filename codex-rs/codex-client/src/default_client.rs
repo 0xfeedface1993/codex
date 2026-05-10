@@ -52,6 +52,7 @@ pub struct CodexRequestBuilder {
     builder: reqwest::RequestBuilder,
     method: Method,
     url: String,
+    propagate_trace_headers: bool,
 }
 
 impl CodexRequestBuilder {
@@ -60,6 +61,7 @@ impl CodexRequestBuilder {
             builder,
             method,
             url,
+            propagate_trace_headers: false,
         }
     }
 
@@ -68,6 +70,7 @@ impl CodexRequestBuilder {
             builder: f(self.builder),
             method: self.method,
             url: self.url,
+            propagate_trace_headers: self.propagate_trace_headers,
         }
     }
 
@@ -110,10 +113,20 @@ impl CodexRequestBuilder {
         self.map(|builder| builder.body(body))
     }
 
-    pub async fn send(self) -> Result<Response, reqwest::Error> {
-        let headers = trace_headers();
+    /// Opts into W3C trace header propagation for callers that explicitly need it.
+    pub fn propagate_trace_headers(mut self) -> Self {
+        self.propagate_trace_headers = true;
+        self
+    }
 
-        match self.builder.headers(headers).send().await {
+    pub async fn send(self) -> Result<Response, reqwest::Error> {
+        let builder = if self.propagate_trace_headers {
+            self.builder.headers(trace_headers())
+        } else {
+            self.builder
+        };
+
+        match builder.send().await {
             Ok(response) => {
                 tracing::debug!(
                     method = %self.method,

@@ -67,7 +67,7 @@ where
 }
 
 #[test]
-fn emit_feedback_request_tags_records_sentry_feedback_fields() {
+fn emit_feedback_request_tags_records_feedback_fields() {
     let tags = Arc::new(Mutex::new(BTreeMap::new()));
     let event_count = Arc::new(Mutex::new(0));
     let _guard = tracing_subscriber::registry()

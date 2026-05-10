@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
 
 use anyhow::Result;
 use anyhow::bail;
@@ -366,7 +365,7 @@ async fn explicit_plugin_mentions_inject_plugin_guidance() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn explicit_plugin_mentions_track_plugin_used_analytics() -> Result<()> {
+async fn explicit_plugin_mentions_do_not_send_plugin_used_analytics() -> Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
     let _resp_mock = mount_sse_once(
@@ -393,47 +392,13 @@ async fn explicit_plugin_mentions_track_plugin_used_analytics() -> Result<()> {
         .await?;
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let plugin_event = loop {
-        let requests = server.received_requests().await.unwrap_or_default();
-        if let Some(event) = requests
-            .into_iter()
-            .filter(|request| request.url.path() == "/codex/analytics-events/events")
-            .find_map(|request| {
-                let payload: serde_json::Value = serde_json::from_slice(&request.body).ok()?;
-                payload["events"].as_array().and_then(|events| {
-                    events
-                        .iter()
-                        .find(|event| event["event_type"] == "codex_plugin_used")
-                        .cloned()
-                })
-            })
-        {
-            break event;
-        }
-        if Instant::now() >= deadline {
-            panic!("timed out waiting for plugin analytics request");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    };
-
-    let event = plugin_event;
-    assert_eq!(event["event_params"]["plugin_id"], "sample@test");
-    assert_eq!(event["event_params"]["plugin_name"], "sample");
-    assert_eq!(event["event_params"]["marketplace_name"], "test");
-    assert_eq!(event["event_params"]["has_skills"], true);
-    assert_eq!(event["event_params"]["mcp_server_count"], 0);
-    assert_eq!(
-        event["event_params"]["connector_ids"],
-        serde_json::json!([])
-    );
-    assert_eq!(
-        event["event_params"]["product_client_id"],
-        serde_json::json!(codex_login::default_client::originator().value)
-    );
-    assert_eq!(event["event_params"]["model_slug"], "gpt-5.2");
-    assert!(event["event_params"]["thread_id"].as_str().is_some());
-    assert!(event["event_params"]["turn_id"].as_str().is_some());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let requests = server.received_requests().await.unwrap_or_default();
+    let count = requests
+        .iter()
+        .filter(|request| request.url.path() == "/codex/analytics-events/events")
+        .count();
+    assert_eq!(count, 0, "plugin analytics requests should be disabled");
 
     Ok(())
 }

@@ -1,18 +1,15 @@
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
-use app_test_support::DEFAULT_CLIENT_NAME;
 use app_test_support::write_chatgpt_auth;
 use codex_config::types::AuthCredentialsStoreMode;
 use codex_config::types::OtelExporterKind;
 use codex_config::types::OtelHttpProtocol;
 use codex_core::config::ConfigBuilder;
 use pretty_assertions::assert_eq;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 use tempfile::TempDir;
-use tokio::time::timeout;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
@@ -56,7 +53,7 @@ async fn app_server_default_analytics_disabled_without_flag() -> Result<()> {
 }
 
 #[tokio::test]
-async fn app_server_default_analytics_enabled_with_flag() -> Result<()> {
+async fn app_server_default_analytics_flag_does_not_enable_metrics() -> Result<()> {
     let codex_home = TempDir::new()?;
     let mut config = ConfigBuilder::default()
         .codex_home(codex_home.path().to_path_buf())
@@ -73,9 +70,9 @@ async fn app_server_default_analytics_enabled_with_flag() -> Result<()> {
     )
     .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
-    // With analytics unset in the config and the default flag is true, metrics are enabled.
+    // OpenAI-owned analytics defaults are ignored in privacy-preserving builds.
     let has_metrics = provider.as_ref().and_then(|otel| otel.metrics()).is_some();
-    assert_eq!(has_metrics, true);
+    assert_eq!(has_metrics, false);
     Ok(())
 }
 
@@ -98,110 +95,15 @@ pub(crate) async fn mount_analytics_capture(server: &MockServer, codex_home: &Pa
     Ok(())
 }
 
-pub(crate) async fn wait_for_analytics_payload(
-    server: &MockServer,
-    read_timeout: Duration,
-) -> Result<Value> {
-    let body = timeout(read_timeout, async {
-        loop {
-            let Some(requests) = server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            if let Some(request) = requests.iter().find(|request| {
-                request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
-            }) {
-                break request.body.clone();
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await?;
-    serde_json::from_slice(&body).map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"))
-}
-
-pub(crate) async fn wait_for_analytics_event(
-    server: &MockServer,
-    read_timeout: Duration,
-    event_type: &str,
-) -> Result<Value> {
-    timeout(read_timeout, async {
-        loop {
-            let Some(requests) = server.received_requests().await else {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-                continue;
-            };
-            for request in &requests {
-                if request.method != "POST"
-                    || request.url.path() != "/codex/analytics-events/events"
-                {
-                    continue;
-                }
-                let payload: Value = serde_json::from_slice(&request.body)
-                    .map_err(|err| anyhow::anyhow!("invalid analytics payload: {err}"))?;
-                let Some(events) = payload["events"].as_array() else {
-                    continue;
-                };
-                if let Some(event) = events
-                    .iter()
-                    .find(|event| event["event_type"] == event_type)
-                {
-                    return Ok::<Value, anyhow::Error>(event.clone());
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await?
-}
-
-pub(crate) fn thread_initialized_event(payload: &Value) -> Result<&Value> {
-    let events = payload["events"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("analytics payload missing events array"))?;
-    events
+pub(crate) async fn assert_no_analytics_requests(server: &MockServer) -> Result<()> {
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let requests = server.received_requests().await.unwrap_or_default();
+    let count = requests
         .iter()
-        .find(|event| event["event_type"] == "codex_thread_initialized")
-        .ok_or_else(|| anyhow::anyhow!("codex_thread_initialized event should be present"))
-}
-
-pub(crate) fn assert_basic_thread_initialized_event(
-    event: &Value,
-    thread_id: &str,
-    expected_model: &str,
-    initialization_mode: &str,
-    expected_thread_source: &str,
-) {
-    assert_eq!(event["event_params"]["thread_id"], thread_id);
-    assert_eq!(
-        event["event_params"]["app_server_client"]["product_client_id"],
-        DEFAULT_CLIENT_NAME
-    );
-    assert_eq!(
-        event["event_params"]["app_server_client"]["client_name"],
-        DEFAULT_CLIENT_NAME
-    );
-    assert_eq!(
-        event["event_params"]["app_server_client"]["rpc_transport"],
-        "stdio"
-    );
-    assert_eq!(event["event_params"]["model"], expected_model);
-    assert_eq!(event["event_params"]["ephemeral"], false);
-    assert_eq!(
-        event["event_params"]["thread_source"],
-        expected_thread_source
-    );
-    assert_eq!(
-        event["event_params"]["subagent_source"],
-        serde_json::Value::Null
-    );
-    assert_eq!(
-        event["event_params"]["parent_thread_id"],
-        serde_json::Value::Null
-    );
-    assert_eq!(
-        event["event_params"]["initialization_mode"],
-        initialization_mode
-    );
-    assert!(event["event_params"]["created_at"].as_u64().is_some());
+        .filter(|request| {
+            request.method == "POST" && request.url.path() == "/codex/analytics-events/events"
+        })
+        .count();
+    assert_eq!(count, 0, "analytics requests should be disabled");
+    Ok(())
 }
