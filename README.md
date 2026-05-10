@@ -50,6 +50,56 @@ Run `codex` and select **Sign in with ChatGPT**. We recommend signing into your 
 
 You can also use Codex with an API key, but this requires [additional setup](https://developers.openai.com/codex/auth#sign-in-with-an-api-key).
 
+### Using a custom model provider
+
+To run this build without OpenAI account login, configure a custom
+OpenAI-compatible provider in `~/.codex/config.toml`.
+
+```toml
+# The provider id must match the table name below.
+model_provider = "custom"
+
+# Use the model id exposed by your provider.
+model = "your-model-id"
+
+# Avoid the built-in release update check.
+check_for_update_on_startup = false
+
+[analytics]
+enabled = false
+
+[features]
+# Disable ChatGPT/Codex Apps connectors and plugin discovery surfaces.
+apps = false
+tool_suggest = false
+plugins = false
+
+[model_providers.custom]
+name = "Custom OpenAI-Compatible Provider"
+base_url = "https://your-provider.example.com/v1"
+env_key = "CUSTOM_PROVIDER_API_KEY"
+wire_api = "responses"
+requires_openai_auth = false
+
+# Optional but recommended defaults.
+request_max_retries = 4
+stream_max_retries = 5
+stream_idle_timeout_ms = 300000
+websocket_connect_timeout_ms = 15000
+supports_websockets = false
+```
+
+Then set the provider API key before starting Codex:
+
+```shell
+export CUSTOM_PROVIDER_API_KEY="your-api-key"
+codex
+```
+
+`env_key` is sent as `Authorization: Bearer <value>`. If you previously signed
+in with ChatGPT and want to avoid all OpenAI official cloud and connector
+features, run `codex logout` before using the custom provider.
+
 ## Docs
 
 - [**Codex Documentation**](https://developers.openai.com/codex)
