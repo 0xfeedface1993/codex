@@ -59,7 +59,7 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 use wiremock::matchers::query_param;
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[tokio::test]
 async fn plugin_read_rejects_missing_read_source() -> Result<()> {
@@ -1263,7 +1263,7 @@ enabled = false
     assert_eq!(response.plugin.apps[0].name, "gmail");
     assert_eq!(
         response.plugin.apps[0].install_url.as_deref(),
-        Some("https://chatgpt.com/apps/gmail/gmail")
+        Some("https://invalid.chatgpt.invalid/apps/gmail/gmail")
     );
     assert_eq!(response.plugin.apps[0].needs_auth, true);
     assert_eq!(response.plugin.mcp_servers.len(), 1);

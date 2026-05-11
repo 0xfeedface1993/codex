@@ -136,10 +136,13 @@ async fn end_to_end_login_flow_persists_auth_json() -> Result<()> {
     // Simulate browser callback, and follow redirect to /success
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(5))
+        .no_proxy()
         .build()?;
     let url = format!("http://127.0.0.1:{login_port}/auth/callback?code=abc&state=test_state_123");
     let resp = client.get(&url).send().await?;
-    assert!(resp.status().is_success());
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert!(status.is_success(), "status: {status}; body: {body}");
 
     // Wait for server shutdown
     server.block_until_done().await?;
@@ -189,10 +192,12 @@ async fn creates_missing_codex_home_dir() -> Result<()> {
     let server = run_login_server(opts)?;
     let login_port = server.actual_port;
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder().no_proxy().build()?;
     let url = format!("http://127.0.0.1:{login_port}/auth/callback?code=abc&state=state2");
     let resp = client.get(&url).send().await?;
-    assert!(resp.status().is_success());
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert!(status.is_success(), "status: {status}; body: {body}");
 
     server.block_until_done().await?;
 

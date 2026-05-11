@@ -125,7 +125,7 @@ pub(crate) async fn load_plugins_config(codex_home: &Path, cwd: &Path) -> Plugin
             "plugin_hooks",
             /*default_enabled*/ false,
         ),
-        "https://chatgpt.com/backend-api/".to_string(),
+        "https://invalid.chatgpt.invalid/backend-api/".to_string(),
     )
 }
 

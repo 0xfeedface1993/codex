@@ -94,7 +94,7 @@ async fn update_once(terminate: &mut Signal) -> Result<UpdateLoopControl> {
 
 #[cfg(unix)]
 async fn install_latest_standalone() -> Result<()> {
-    let script = reqwest::get("https://chatgpt.com/codex/install.sh")
+    let script = reqwest::get("https://invalid.chatgpt.invalid/codex/install.sh")
         .await
         .context("failed to fetch standalone Codex updater")?
         .error_for_status()

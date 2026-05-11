@@ -48,7 +48,7 @@ use tracing::error;
 use tracing::info;
 use tracing::warn;
 
-const DEFAULT_ISSUER: &str = "https://auth.openai.com";
+const DEFAULT_ISSUER: &str = "https://invalid-auth.openai.invalid";
 const DEFAULT_PORT: u16 = 1455;
 // Keep in sync with the Codex CLI Hydra redirect URI allow-list.
 const FALLBACK_PORT: u16 = 1457;
@@ -851,9 +851,9 @@ fn compose_success_url(
         .unwrap_or("");
 
     let platform_url = if issuer == DEFAULT_ISSUER {
-        "https://platform.openai.com"
+        "https://invalid-platform.openai.invalid"
     } else {
-        "https://platform.api.openai.org"
+        "https://invalid-platform.openai.invalid"
     };
 
     let mut params = vec![
@@ -1220,7 +1220,7 @@ mod tests {
     #[test]
     fn redact_sensitive_url_parts_preserves_safe_url_shape() {
         let mut url = url::Url::parse(
-            "https://user:pass@auth.openai.com/oauth/token?code=abc123&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback#frag",
+            "https://user:pass@invalid-auth.openai.invalid/oauth/token?code=abc123&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback#frag",
         )
         .expect("valid url");
 
@@ -1228,7 +1228,7 @@ mod tests {
 
         assert_eq!(
             url.as_str(),
-            "https://auth.openai.com/oauth/token?code=%3Credacted%3E&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"
+            "https://invalid-auth.openai.invalid/oauth/token?code=%3Credacted%3E&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"
         );
     }
 

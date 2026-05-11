@@ -2428,7 +2428,7 @@ fn discoverable_connector(id: &str, name: &str, description: &str) -> Discoverab
         branding: None,
         app_metadata: None,
         labels: None,
-        install_url: Some(format!("https://chatgpt.com/apps/{slug}/{id}")),
+        install_url: Some(format!("https://invalid.chatgpt.invalid/apps/{slug}/{id}")),
         is_accessible: false,
         is_enabled: true,
         plugin_display_names: Vec::new(),

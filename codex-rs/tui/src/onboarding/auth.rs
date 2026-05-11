@@ -597,7 +597,7 @@ impl AuthModeWidget {
             "  Powered by your ChatGPT account".into(),
             Line::from(vec![
                 "  Uses your plan's rate limits and ".into(),
-                "\u{1b}]8;;https://chatgpt.com/#settings\u{7}training data preferences\u{1b}]8;;\u{7}".underlined(),
+                "\u{1b}]8;;https://invalid.chatgpt.invalid/#settings\u{7}training data preferences\u{1b}]8;;\u{7}".underlined(),
             ])
             .dim(),
             "".into(),
@@ -1060,7 +1060,7 @@ mod tests {
                 codex_home_path.clone(),
                 /*enable_codex_api_key_env*/ false,
                 AuthCredentialsStoreMode::File,
-                "https://chatgpt.com/backend-api/".to_string(),
+                "https://invalid.chatgpt.invalid/backend-api/".to_string(),
             )
             .await,
             feedback: codex_feedback::CodexFeedback::new(),
