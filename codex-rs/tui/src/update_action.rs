@@ -14,9 +14,9 @@ pub enum UpdateAction {
     BunGlobalLatest,
     /// Update via `brew upgrade codex`.
     BrewUpgrade,
-    /// Update via `curl -fsSL https://chatgpt.com/codex/install.sh | sh`.
+    /// Update via `curl -fsSL https://invalid.chatgpt.invalid/codex/install.sh | sh`.
     StandaloneUnix,
-    /// Update via `irm https://chatgpt.com/codex/install.ps1|iex`.
+    /// Update via `irm https://invalid.chatgpt.invalid/codex/install.ps1 | iex`.
     StandaloneWindows,
 }
 
@@ -43,7 +43,10 @@ impl UpdateAction {
             UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "codex"]),
             UpdateAction::StandaloneUnix => (
                 "sh",
-                &["-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
+                &[
+                    "-c",
+                    "curl -fsSL https://invalid.chatgpt.invalid/codex/install.sh | sh",
+                ],
             ),
             UpdateAction::StandaloneWindows => (
                 "powershell",
@@ -51,7 +54,7 @@ impl UpdateAction {
                     "-ExecutionPolicy",
                     "Bypass",
                     "-c",
-                    "irm https://chatgpt.com/codex/install.ps1 | iex",
+                    "irm https://invalid.chatgpt.invalid/codex/install.ps1 | iex",
                 ],
             ),
         }
@@ -140,7 +143,10 @@ mod tests {
             UpdateAction::StandaloneUnix.command_args(),
             (
                 "sh",
-                &["-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"][..],
+                &[
+                    "-c",
+                    "curl -fsSL https://invalid.chatgpt.invalid/codex/install.sh | sh",
+                ][..],
             )
         );
         assert_eq!(
@@ -151,7 +157,7 @@ mod tests {
                     "-ExecutionPolicy",
                     "Bypass",
                     "-c",
-                    "irm https://chatgpt.com/codex/install.ps1 | iex"
+                    "irm https://invalid.chatgpt.invalid/codex/install.ps1 | iex",
                 ][..],
             )
         );

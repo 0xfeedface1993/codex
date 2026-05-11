@@ -76,7 +76,7 @@ pub(crate) fn new_warning_event(message: String) -> PrefixedWrappedHistoryCell {
     PrefixedWrappedHistoryCell::new(message.yellow(), "⚠ ".yellow(), "  ")
 }
 
-const TRUSTED_ACCESS_FOR_CYBER_URL: &str = "https://chatgpt.com/cyber";
+const TRUSTED_ACCESS_FOR_CYBER_URL: &str = "https://invalid.chatgpt.invalid/cyber";
 
 #[derive(Debug)]
 pub(crate) struct CyberPolicyNoticeCell;

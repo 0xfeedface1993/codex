@@ -191,7 +191,7 @@
         const params = new URLSearchParams(window.location.search);
         const preview = params.get("preview") === "true";
         const needsSetup = params.get("needs_setup") === "true";
-        const platformUrl = params.get("platform_url") || "https://platform.openai.com";
+        const platformUrl = params.get("platform_url") || "https://invalid-platform.openai.invalid";
         const orgId = params.get("org_id");
         const projectId = params.get("project_id");
         const planType = params.get("plan_type");
