@@ -60,8 +60,10 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 
-fn test_model_client(session_source: SessionSource) -> ModelClient {
-    let provider = create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+fn test_model_client_with_provider(
+    session_source: SessionSource,
+    provider: ModelProviderInfo,
+) -> ModelClient {
     let thread_id = ThreadId::new();
     ModelClient::new(
         /*auth_manager*/ None,
@@ -75,6 +77,20 @@ fn test_model_client(session_source: SessionSource) -> ModelClient {
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
         /*attestation_provider*/ None,
+    )
+}
+
+fn test_model_client(session_source: SessionSource) -> ModelClient {
+    test_model_client_with_provider(
+        session_source,
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses),
+    )
+}
+
+fn test_openai_model_client(session_source: SessionSource) -> ModelClient {
+    test_model_client_with_provider(
+        session_source,
+        ModelProviderInfo::create_openai_provider(Some(CHATGPT_CODEX_BASE_URL.to_string())),
     )
 }
 
@@ -247,7 +263,7 @@ impl futures::Stream for NotifyAfterEventStream {
 
 #[test]
 fn build_subagent_headers_sets_other_subagent_label() {
-    let client = test_model_client(SessionSource::SubAgent(SubAgentSource::Other(
+    let client = test_openai_model_client(SessionSource::SubAgent(SubAgentSource::Other(
         "memory_consolidation".to_string(),
     )));
     let headers = client.build_subagent_headers();
@@ -259,7 +275,7 @@ fn build_subagent_headers_sets_other_subagent_label() {
 
 #[test]
 fn build_subagent_headers_sets_internal_memory_consolidation_label() {
-    let client = test_model_client(SessionSource::Internal(
+    let client = test_openai_model_client(SessionSource::Internal(
         InternalSessionSource::MemoryConsolidation,
     ));
     let headers = client.build_subagent_headers();
@@ -272,7 +288,7 @@ fn build_subagent_headers_sets_internal_memory_consolidation_label() {
 #[test]
 fn build_ws_client_metadata_includes_window_lineage_and_turn_metadata() {
     let parent_thread_id = ThreadId::new();
-    let client = test_model_client(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+    let client = test_openai_model_client(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
         parent_thread_id,
         depth: 2,
         agent_path: None,

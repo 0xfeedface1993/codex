@@ -420,10 +420,10 @@ async fn accept_http_request(listener: &TcpListener) -> anyhow::Result<CapturedH
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).await?;
-        if line == "\r\n" {
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.is_empty() {
             break;
         }
-        let line = line.trim_end_matches("\r\n");
         let (name, value) = line
             .split_once(':')
             .ok_or_else(|| anyhow::anyhow!("HTTP header should contain colon: {line}"))?;

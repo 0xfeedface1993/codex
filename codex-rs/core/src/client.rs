@@ -394,14 +394,14 @@ impl ModelClient {
     }
 
     fn codex_request_session_headers(&self) -> (Option<String>, Option<String>) {
-        self.codex_request_metadata_enabled()
-            .then(|| {
-                (
-                    Some(self.state.session_id.to_string()),
-                    Some(self.state.thread_id.to_string()),
-                )
-            })
-            .unwrap_or((None, None))
+        if self.codex_request_metadata_enabled() {
+            (
+                Some(self.state.session_id.to_string()),
+                Some(self.state.thread_id.to_string()),
+            )
+        } else {
+            (None, None)
+        }
     }
 
     fn take_cached_websocket_session(&self) -> WebsocketSession {
